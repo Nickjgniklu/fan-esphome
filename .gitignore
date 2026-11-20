@@ -1,0 +1,7 @@
+# ESPHome build output
+.esphome/
+
+# Real WiFi/API/OTA credentials; commit secrets.example.yaml instead
+secrets.yaml
+
+*.log
