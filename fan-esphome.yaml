@@ -82,8 +82,10 @@ wifi:
 captive_portal:
 
 # XIAO ESP32-C6 antenna RF switch: GPIO3 LOW enables the switch, GPIO14 LOW
-# selects the built-in ceramic antenna (HIGH = external U.FL antenna). These
-# set up before WiFi, so the radio has an antenna when it starts scanning.
+# selects the built-in ceramic antenna, HIGH the external U.FL antenna.
+# This board's ceramic antenna path receives nothing (scans find no networks),
+# so it uses an external antenna. Set antenna_select to ALWAYS_OFF on a board
+# with a working ceramic antenna.
 switch:
   - platform: gpio
     id: rf_switch_enable
@@ -93,7 +95,7 @@ switch:
   - platform: gpio
     id: antenna_select
     pin: GPIO14
-    restore_mode: ALWAYS_OFF
+    restore_mode: ALWAYS_ON
     internal: true
 
 remote_transmitter:
