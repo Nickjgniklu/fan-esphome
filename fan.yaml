@@ -3,10 +3,10 @@
 #   n     short id used in entity ids (1, 2, 3, ...)
 #   fan_name  name prefix shown in Home Assistant
 #   addr  the remote's 16-bit address (bits 0-15 of any of its codes)
-# The 6-bit model constant and the 10-bit command fields come from the
+# The button bytes come from the
 # substitutions in fan-esphome.yaml and are shared by every fan of this model.
 #
-# RF is one-way, so the fan and light states are assumed. sent_* hold the
+# RF is one-way, so the fan state is assumed. sent_* hold the
 # state last transmitted; only differences from it go out over RF. Until
 # rf_ready is set (after boot), changes are only recorded, so the state
 # restored at boot is never transmitted.
@@ -15,7 +15,6 @@ globals:
   - { id: "fan_on_${n}", type: bool, initial_value: "false" }
   - { id: "fan_speed_${n}", type: int, initial_value: "0" }
   - { id: "fan_dir_${n}", type: int, initial_value: "0" }
-  - { id: "light_on_${n}", type: bool, initial_value: "false" }
 
 fan:
   - platform: template
@@ -30,53 +29,35 @@ fan:
           int &sent_speed = id(fan_speed_${n});
           int &sent_dir = id(fan_dir_${n});
           if (id(rf_ready)) {
-            const std::string pre = "${addr}${model}";
-            static const char *const SPEEDS[6] = {
-                "${cmd_speed1}", "${cmd_speed2}", "${cmd_speed3}",
-                "${cmd_speed4}", "${cmd_speed5}", "${cmd_speed6}"};
-            if (!x->state && sent_on) id(send_rf)->execute(pre + "${cmd_fan_off}");
+            static const int SPEEDS[6] = {
+                ${cmd_speed1}, ${cmd_speed2}, ${cmd_speed3},
+                ${cmd_speed4}, ${cmd_speed5}, ${cmd_speed6}};
+            if (!x->state && sent_on) id(send_rf)->execute(${addr}, ${cmd_fan_off});
             // The remote only has a "reverse" toggle, so send it once per change.
-            if ((int) x->direction != sent_dir) id(send_rf)->execute(pre + "${cmd_direction}");
+            if ((int) x->direction != sent_dir) id(send_rf)->execute(${addr}, ${cmd_direction});
             if (x->state && (!sent_on || x->speed != sent_speed)) {
               int s = x->speed < 1 ? 1 : (x->speed > 6 ? 6 : x->speed);
-              id(send_rf)->execute(pre + SPEEDS[s - 1]);
+              id(send_rf)->execute(${addr}, SPEEDS[s - 1]);
             }
           }
           sent_on = x->state;
           sent_speed = x->speed;
           sent_dir = (int) x->direction;
 
-# The light's only on/off code is a toggle, so it is sent whenever the assumed
-# state changes. Brightness and color are relative steps: use the buttons.
-output:
-  - platform: template
-    id: light_out_${n}
-    type: binary
-    write_action:
-      - lambda: |-
-          if (state == id(light_on_${n})) return;
-          id(light_on_${n}) = state;
-          if (id(rf_ready)) id(send_rf)->execute("${addr}${model}${cmd_light_toggle}");
-
-light:
-  - platform: binary
-    id: light_${n}
-    name: "${fan_name} Light"
-    output: light_out_${n}
-    restore_mode: RESTORE_DEFAULT_OFF
-
-# One button per code. These send the code without changing the assumed state
-# of the fan or light entity.
+# Light On/Off are intent labels, not discrete RF commands. Both transmit the
+# toggle on every press, with no assumed light state or duplicate suppression.
+# Raw fan buttons do not change the fan entity's assumed state.
 button:
-  - { platform: template, name: "${fan_name} RF Speed 1", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed1}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 2", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed2}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 3", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed3}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 4", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed4}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 5", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed5}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 6", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_speed6}" } }] }
-  - { platform: template, name: "${fan_name} RF Off", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_fan_off}" } }] }
-  - { platform: template, name: "${fan_name} RF Reverse", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_direction}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Toggle", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_light_toggle}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Color", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_light_color}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Brighter", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_light_up}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Dimmer", on_press: [{ script.execute: { id: send_rf, bits: "${addr}${model}${cmd_light_down}" } }] }
+  - { platform: template, name: "${fan_name} Light On", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
+  - { platform: template, name: "${fan_name} Light Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 1", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed1}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 2", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed2}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 3", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed3}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 4", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed4}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 5", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed5}" } }] }
+  - { platform: template, name: "${fan_name} RF Speed 6", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed6}" } }] }
+  - { platform: template, name: "${fan_name} RF Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_fan_off}" } }] }
+  - { platform: template, name: "${fan_name} RF Reverse", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_direction}" } }] }
+  - { platform: template, name: "${fan_name} RF Light Color", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_color}" } }] }
+  - { platform: template, name: "${fan_name} RF Light Brighter", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_up}" } }] }
+  - { platform: template, name: "${fan_name} RF Light Dimmer", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_down}" } }] }

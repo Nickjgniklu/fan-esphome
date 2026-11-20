@@ -1,0 +1,6 @@
+aioesphomeapi
+numpy
+scipy
+sounddevice
+matplotlib
+Pillow

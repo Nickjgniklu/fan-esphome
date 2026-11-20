@@ -3,8 +3,8 @@
 # Replays 433.92 MHz OOK remote codes from a transmitter on XIAO ESP32-C6 D10.
 # Protocol and capture history: see README.md (reverse-engineered in fan_control).
 #
-# Each fan is one `packages:` entry below; adding a fan only takes its remote's
-# 16-bit address. Code = 16-bit address + 6-bit model constant + 10-bit command.
+# Each fan is one `packages:` entry below with its remote's 16-bit address.
+# Frame = address + 0x5 + button byte + XOR checksum nibble.
 
 substitutions:
   name: fan-esphome
@@ -21,35 +21,32 @@ substitutions:
   gap_us: "8444"
   repeats: "10"
 
-  # Shared by every remote of this model (bits 16-21).
-  model: "010100"
-  # 10-bit command fields (bits 22-31), captured from fan 1's remote.
-  cmd_speed1: "0000010101"
-  cmd_speed2: "0010011101"
-  cmd_speed3: "0001110011"
-  cmd_speed4: "0010001100"
-  cmd_speed5: "0001000000"
-  cmd_speed6: "0001010001"
-  cmd_fan_off: "0000100110"
-  cmd_direction: "1000100100"
-  cmd_light_toggle: "0010111111"
-  cmd_light_color: "0011011001"
-  cmd_light_up: "1101010010"
-  cmd_light_down: "1101000011"
+  # Button bytes (bits 20-27), excluding the computed checksum.
+  cmd_speed1: "0x01"
+  cmd_speed2: "0x09"
+  cmd_speed3: "0x07"
+  cmd_speed4: "0x08"
+  cmd_speed5: "0x04"
+  cmd_speed6: "0x05"
+  cmd_fan_off: "0x02"
+  cmd_direction: "0x22"
+  cmd_light_toggle: "0x0B"
+  cmd_light_color: "0x0D"
+  cmd_light_up: "0x35"
+  cmd_light_down: "0x34"
 
 packages:
   # Every button captured and verified on the real fan.
-  fan1: !include { file: fan.yaml, vars: { n: "1", fan_name: "Fan 1", addr: "1000011001111000" } }
-  # Only speed1 captured (11111111100010010101000000010101); the other codes
-  # assume this remote shares fan 1's command fields.
-  fan2: !include { file: fan.yaml, vars: { n: "2", fan_name: "Fan 2", addr: "1111111110001001" } }
-  # fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "Fan 3", addr: "<first 16 bits of any fan3 code>" } }
+  fan1: !include { file: fan.yaml, vars: { n: "1", fan_name: "Fan 1", addr: "0x8678" } }
+  # Only speed1 captured; remaining buttons use the shared button bytes.
+  fan2: !include { file: fan.yaml, vars: { n: "2", fan_name: "Fan 2", addr: "0xFF89" } }
+  fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "Fan 3", addr: "0x548D" } }
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   on_boot:
-    # After every fan and light has restored its state, start transmitting
+    # After every fan has restored its state, start transmitting
     # changes (see fan.yaml).
     priority: -100
     then:
@@ -107,26 +104,40 @@ remote_transmitter:
 
 globals:
   - { id: rf_ready, type: bool, initial_value: "false" }
+  - { id: rf_bits, type: std::string }
 
 script:
-  # Transmit one 32-bit code (a string of 0/1) as `repeats` back-to-back frames
+  # Build a code from its address and button, then send back-to-back frames
   # in a single RMT transmission, so every gap is exactly gap_us.
   - id: send_rf
     mode: queued
     max_runs: 20
     parameters:
-      bits: string
+      address: int
+      command: int
     then:
+      - lambda: |-
+          uint32_t frame = (uint32_t(address) << 16) | 0x5000 | (uint32_t(command) << 4);
+          uint8_t checksum = 0;
+          for (int shift = 4; shift < 32; shift += 4)
+            checksum ^= (frame >> shift) & 0xF;
+          frame |= checksum;
+          std::string b;
+          b.reserve(32);
+          for (int bit = 31; bit >= 0; bit--)
+            b += ((frame >> bit) & 1) ? '1' : '0';
+          id(rf_bits) = b;
       - logger.log:
           format: "RF TX %s"
-          args: ["bits.c_str()"]
+          args: ["id(rf_bits).c_str()"]
       - remote_transmitter.transmit_raw:
           transmitter_id: rf_tx
           code: !lambda |-
+            const std::string &b = id(rf_bits);
             std::vector<int32_t> v;
-            v.reserve(${repeats} * (bits.size() * 2 + 2));
+            v.reserve(${repeats} * (b.size() * 2 + 2));
             for (int r = 0; r < ${repeats}; r++) {
-              for (char c : bits) {
+              for (char c : b) {
                 if (c == '1') { v.push_back(${long_us}); v.push_back(-${short_us}); }
                 else if (c == '0') { v.push_back(${short_us}); v.push_back(-${long_us}); }
               }

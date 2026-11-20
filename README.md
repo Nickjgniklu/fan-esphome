@@ -7,11 +7,22 @@ ESP32-C6 with an OOK transmitter module on **D10 (GPIO18)**.
 For each fan, Home Assistant gets:
 
 - a fan entity (speeds 1–6, off, direction)
-- a light entity (on/off)
-- one button per remote code, including light brighter, dimmer, and color
+- two stateless buttons, `<Fan> Light On` and `<Fan> Light Off`
+- raw fan buttons and light brighter, dimmer, and color buttons
 
-RF is one-way, so the fan and light states are assumed. If someone uses the
-physical remote, use the buttons to bring things back in line.
+**Light On and Light Off are intent labels, not discrete RF on/off commands.**
+For now, BOTH send the known light-toggle code on every press. Either button
+can turn an already-on light off or an already-off light on. Repeated presses
+are never deduplicated. There is no assumed light state, stateful light entity,
+or redundant raw light-toggle button. This avoids suppressing a press because
+Home Assistant thinks the light is already in the requested state; it does not
+provide guaranteed on/off behavior. Genuine discrete commands remain under research.
+
+RF is one-way, so the fan entity's state is still assumed. Raw fan buttons do
+not update it. Existing HA automations using `light.turn_on`/`light.turn_off`
+must be changed to `button.press` on the replacement entities. Home Assistant
+may retain the removed light/raw-toggle entities as unavailable until you
+remove those obsolete entries from its entity registry.
 
 ## Supported fan
 
@@ -53,23 +64,52 @@ python -m esphome run fan-esphome.yaml                 # later, over the air
 python -m esphome logs fan-esphome.yaml                # each press logs "RF TX <bits>"
 ```
 
+Generate the API encryption key with `openssl rand -base64 32`. The example
+contains placeholders only; never use it unchanged or commit real credentials.
+
 ## Adding a fan
 
-Take any code captured from the new fan's remote; its first 16 bits are the
-address. Then add one line under `packages:` in `fan-esphome.yaml`:
+Capture any button from a remote of this model and take its first 16 bits as
+the address. The firmware computes the checksum using the model below; no
+separate key is configured. Uncaptured buttons assume the shared button bytes.
+
+Then add one line under `packages:` in `fan-esphome.yaml`:
 
 ```yaml
-  fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "Fan 3", addr: "<16 bits>" } }
+  fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "Fan 3", addr: "0x548D" } }
 ```
 
-This works when the remote is the same model: bits 16–21 are `010100`, and its
-buttons use the same 10-bit commands as fan 1. If a different model's commands
-differ, it needs its own command set.
+Use a unique `n` and display name for each fan.
+
+To check a button over the air, `tools/rf_bench.py` presses it through the API
+while it records the RTL-SDR, the PC microphone and a snapshot camera on one
+clock. It decodes every frame and reports any beep and changes in the picture.
+
+```powershell
+python -m pip install -r tools/requirements.txt
+python tools/rf_bench.py --button "Fan 3 RF Speed 1" --expect 01010100100011010101000000010000 --mic "YOUR_MIC_NAME"
+python tools/rf_bench.py --remote --seconds 120 --video --mic "YOUR_MIC_NAME"
+```
+
+The bench uses an RTL-SDR at 433.92 MHz and 1 MS/s, with the bridge at
+`fan-esphome.local` and camera at `http://fan-cam.local:8080/`. Select a WASAPI
+microphone with `--mic`; override hosts with CLI options. Put `rtl_sdr` on PATH
+or set the local `RTL_SDR_EXE` environment variable to its executable path.
+Runs are ignored by git and contain timestamped JPEG frames,
+audio WAV, decoded RF frames, a summary and a shared-clock timeline. SDR timing
+is estimated from USB chunk arrival; camera timestamps are HTTP request
+midpoints, not sensor exposure times. Correlation is approximate, not a hardware
+synchronized measurement. A beep is evidence of command acceptance, not proof
+of the exact speed or direction; video must establish those separately.
+With `--video`, FFmpeg exports `camera.mp4` paced by the recorded frame times.
+It is silent; the separate WAV starts at `timing.audio_start_s`, and the video
+starts at the first `timing.camera_frame_times_s` value in `summary.json`.
 
 ## Protocol
 
 The protocol was reverse-engineered with an RTL-SDR in the `fan_control`
-project (`docs/PROTOCOL.md`, `data/*.sig`). Every fan 1 code below was replayed
+project (`docs/PROTOCOL.md`, `docs/CODE_PREDICTION.md`, real `data/*.sig` captures).
+The generated fan3 files without `_capture` are not used. Every fan 1 code was replayed
 from an ESP32 and confirmed on the real fan.
 
 - OOK at 433.92 MHz. Each frame is 32 bits, sent MSB first with no lead pulse:
@@ -84,35 +124,101 @@ from an ESP32 and confirmed on the real fan.
   | Bits | Field |
   |---|---|
   | 0–15 | Address of the remote and fan |
-  | 16–21 | Model constant `010100` |
-  | 22–31 | Command |
+  | 16–19 | Model nibble `0x5` |
+  | 20–27 | Button byte |
+  | 28–31 | XOR of the preceding seven nibbles |
 
-- Every valid frame has even parity, so an odd-parity capture is probably a
-  mis-capture.
+- All eight nibbles XOR to zero under the best-supported compact model. All 16
+  original captures from three remotes are consistent with it; even parity
+  follows from it. This is not unique proof: a fixed fan-specific mask predicts
+  identical codes for these remotes. The rule was discovered in these data, so
+  the matching frames do not give a calibrated chance probability. A spot
+  capture neither distinguishes those models nor verifies every button.
 
-| Button | Command (bits 22–31) |
+| Button | Byte (hex) |
 |---|---|
-| speed1 | `0000010101` |
-| speed2 | `0010011101` |
-| speed3 | `0001110011` |
-| speed4 | `0010001100` |
-| speed5 | `0001000000` |
-| speed6 | `0001010001` |
-| fan off | `0000100110` |
-| reverse direction | `1000100100` |
-| light toggle | `0010111111` |
-| light color cycle | `0011011001` |
-| light brighter | `1101010010` |
-| light dimmer | `1101000011` |
+| speed1 | `01` |
+| speed2 | `09` |
+| speed3 | `07` |
+| speed4 | `08` |
+| speed5 | `04` |
+| speed6 | `05` |
+| fan off | `02` |
+| reverse direction | `22` |
+| light toggle | `0B` |
+| light color cycle | `0D` |
+| light brighter | `35` |
+| light dimmer | `34` |
 
 | Fan | Address | Status |
 |---|---|---|
-| Fan 1 | `1000011001111000` | All 12 buttons captured and verified |
-| Fan 2 | `1111111110001001` | Only speed1 captured (same command as fan 1); the rest assume fan 1's commands |
+| Fan 1 | `0x8678` | All 12 buttons captured and verified in fan_control |
+| Fan 2 | `0xFF89` | Speed1 captured; remaining buttons checksum-generated, not physically verified here |
+| Fan 3 | `0x548D` | Speeds 1–3 captured originally; local replay sweep exercised all 12 buttons |
 
-### Testing notes
+For fan 3, a later real-remote reference also captured speed6, off and light
+toggle. Every button in the replay sweep had at least nine SDR frames matching
+its independently expected code. Speeds 1–6 beeped, light toggle changed off/on,
+and dimmer/brighter changed the camera measurement in opposite directions.
+Color and reverse were RF-matched but their exact color/rotation behavior is
+not yet functionally verified. Beeps alone do not prove the requested speed.
+The originally uncaptured nine buttons used fan 1's button bytes; they were
+predictions, not real-remote captures. The generated non-capture fan3 `.sig`
+files fail the inferred checksum, remain untested, and are never imported.
+
+### Discrete light-command search (2026-11-20)
+
+A bounded exploratory test on fan 3 (`0x548D`) looked for separate light-on and
+light-off commands, rather than assuming adjacent command bytes had a meaning.
+Each press used the inferred checksum and normal 10-frame timing.
+
+| Candidate byte | Observed result |
+|---|---|
+| `0A` | No visible light-state change in two trials from ON and two from OFF; 7–10 matching SDR frames per trial, no detected beep |
+| `0C` | First trial from ON left the light on, produced a beep, and started blade motion; 9 matching SDR frames. Exact fan function unknown |
+
+The initial test stopped on that unexpected fan behavior. The known fan-off
+command was sent afterward (10 matching frames). A later owner-authorized scan
+completed `00`–`7F` from both light ON and OFF before being paused at the owner's
+request to stop the beeping/flashing. Only `0B` changed the observed on/off
+state; no discrete command was found. `80`–`FF` were not tested. This is a scan
+under the inferred checksum model with a short observation window, not proof
+that discrete commands cannot exist. RF matches confirm transmission, not the
+receiver's interpretation. The scanner is stopped and its temporary controls
+are removed from the normal firmware.
+
+Local evidence is in the ignored `runs/discrete-light-results.json` and its
+referenced per-trial recordings.
+The partial sweep is in `runs/20261120_152943_full_light_scan/` (also ignored).
+
+### Stateless light-button verification (2026-11-20)
+
+The replacement firmware passed `esphome config`, compiled, and was flashed
+over USB with written-data verification. The live encrypted native API exposed
+all six Light On/Off buttons for the three fans, with no light entities,
+raw-toggle buttons, or scanner controls.
+
+On fan 3, consecutive presses of **On, On, Off, Off** each produced nine SDR
+frames matching the known toggle code. Camera observations were **ON → OFF →
+ON → OFF → ON**, with no detected beeps. Thus both names are repeatable,
+stateless aliases for toggle, not idempotent light commands. Fan 1/2 entity
+discovery was checked, but their replacement buttons were not physically
+exercised in this test. Brightness/color buttons and fan controls are unchanged.
+
+### Repository privacy
+
+Real `secrets.yaml`, ESPHome build output, logs, Python caches, and local `runs/`
+recordings are ignored and must stay local. `secrets.example.yaml` contains
+placeholders only. The bench uses generic hostnames and an executable selected
+through PATH or a local environment variable, not a personal machine path.
+Configured RF addresses and documented protocol examples are deliberately
+included; review those before any future public release. Repository visibility
+must not be changed without separate owner approval.
+
+### Normal button checks
 
 - Only fan commands beep; judge the light buttons by the light itself.
-- Reverse was verified with the fan stopped.
+- fan_control verified reverse on fan 1 with it stopped. The local fan 3 sweep
+  received a beep but has not yet established the actual rotation direction.
 - Test "brighter" from a dim light and "dimmer" from a bright one. At the
   limit, a working button looks dead.
