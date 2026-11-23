@@ -1,11 +1,11 @@
 # Protocol, verification and deployment notes
 
-Reference detail moved out of the README quick start. Capture/verification terms used here: **capture** = recorded from the original remote; **prediction** = a code computed from the protocol model, not captured; **RF replay** = the ESP32 transmission recorded by the SDR; **human confirmation** = the owner watched the fan respond. RF matches confirm transmission, not that the receiver acted.
+Reference detail moved out of the README quick start. Capture/verification terms used here: **capture** = recorded from the original remote; **prediction** = a code computed from the protocol model, not captured; **RF replay** = the ESP32 transmission recorded by the SDR; **human confirmation** = I watched the fan respond. RF matches confirm transmission, not that the receiver acted.
 
 ## Contents
 
 - [Mainstays protocol](#mainstays-protocol)
-- [Artika REM-ARTC-3](#artika-rem-artc-3-controls-owner-tested-nearby)
+- [Artika REM-ARTC-3](#artika-rem-artc-3-controls-tested-nearby)
 - [Bench recording details](#bench-recording-details)
 - [Home Assistant migration notes](#home-assistant-migration-notes)
 
@@ -82,9 +82,9 @@ Each press used the inferred checksum and normal 10-frame timing.
 | `0C` | First trial from ON left the light on, produced a beep, and started blade motion; 9 matching SDR frames. Exact fan function unknown |
 
 The initial test stopped on that unexpected fan behavior. The known fan-off
-command was sent afterward (10 matching frames). A later owner-authorized scan
-completed `00`–`7F` from both light ON and OFF before being paused at the owner's
-request to stop the beeping/flashing. Only `0B` changed the observed on/off
+command was sent afterward (10 matching frames). A later scan I authorized
+completed `00`–`7F` from both light ON and OFF before I paused it
+at my request to stop the beeping/flashing. Only `0B` changed the observed on/off
 state; no discrete command was found. `80`–`FF` were not tested. This is a scan
 under the inferred checksum model with a short observation window, not proof
 that discrete commands cannot exist. RF matches confirm transmission, not the
@@ -117,7 +117,7 @@ exercised in this test. Brightness/color buttons and fan controls are unchanged.
 - Test "brighter" from a dim light and "dimmer" from a bright one. At the
   limit, a working button looks dead.
 
-## Artika REM-ARTC-3 (controls owner-tested nearby)
+## Artika REM-ARTC-3 (controls tested nearby)
 
 This package is separate from Mainstays: no nibble checksum, no 32-bit frame,
 and no reuse of Mainstays timing. It shares only the existing blocking OOK
@@ -125,7 +125,7 @@ transmitter on GPIO18. It exposes 13 buttons: Light On/Off intent aliases,
 Fan Power Toggle, speeds 1–3, reverse, brightness up/down, cooler/warmer CCT,
 and 1h/4h timers. There is deliberately **no stateful Artika fan entity or
 discrete fan-off button**: captured fan power is treated as a toggle, and
-the owner's general confirmation does not establish detailed speed-button
+my general confirmation does not establish detailed speed-button
 power semantics for a stateful fan entity. Both light
 intent buttons send the same toggle; neither guarantees the requested state.
 
@@ -134,7 +134,7 @@ Evidence comes from the sibling `artika-fan-rf/FINDINGS.md` and
 repo. Independent re-decoding of all 13 press windows recovered the same 66
 frames and all listed codes. The apparent 25th HIGH pulse is sync, not data.
 Only the cooler/warmer effects of the original remote were explicitly reported
-by the owner; light-power toggle is supported by the manual, not an explicit
+by me; light-power toggle is supported by the manual, not an explicit
 observation of those original presses. Button-to-code labels otherwise follow
 the confirmed physical press order.
 
@@ -172,8 +172,8 @@ renamed Mainstays fan entities, their 26 companion buttons, and 13 Artika
 buttons. Fan 1 and stateful light/probe entities are absent. Existing Mainstays
 button keys are preserved; the Mainstays encoder is unchanged.
 
-One Artika **Light On** press was sent while the owner reported light OFF and
-motor RUNNING. **The owner reported that the light did not turn on.** No motor,
+One Artika **Light On** press was sent while the light was OFF and the
+motor RUNNING. **The light did not turn on.** No motor,
 reverse, or timer commands followed. RF matching is not receiver acceptance.
 
 Independent comparison of the saved replay IQ and both original light presses
@@ -203,15 +203,15 @@ also has a strong mirrored spectral peak. A lower-gain comparison is needed
 to distinguish transmitter frequency error from measurement artifacts. No
 firmware timing change is justified by the failed light test alone.
 
-The owner then unplugged/moved the bridge nearer and reported **"Yes it is
+I then unplugged/moved the bridge nearer and reported **"Yes it is
 working"** in response to the supervised Home Assistant light test. This
 confirms nearby Artika light operation and HA connectivity after relocation.
 The same flashed firmware was used; no timing adjustment or second flash was
 needed. This supports a range/placement explanation for the initial failure,
 but does not isolate its exact RF cause or prove a carrier mismatch.
 
-The owner subsequently reported **"I tested all the controls for it they all
-work"**. All 13 exposed Artika buttons are therefore recorded as owner-tested
+I subsequently reported **"I tested all the controls for it they all
+work"**. All 13 exposed Artika buttons are therefore recorded as tested by me
 and working after relocation: light-intent aliases, fan power/speeds, reverse,
 brightness, CCT and timer controls. This is human functional confirmation,
 distinct from the automated API discovery and SDR light-waveform checks.
@@ -223,7 +223,7 @@ light-intent button is an idempotent on/off command.
 Keep the selected external antenna attached and use stable USB power. No
 PC/SDR connection is required for HA operation. RF evidence stays in ignored
 `runs/` recordings. No further commands were sent after the first light test;
-the successful nearby test was performed by the owner through HA.
+I performed the successful nearby test through HA.
 
 ### Verification limits
 
@@ -231,7 +231,7 @@ No more hardware tests are required for this delivery. Exact timer durations,
 quantitative speed/direction measurements, repeated light-alias sequences and
 calibrated carrier/range measurements remain outside the recorded evidence.
 Any future live investigation must coordinate SDR/transmitter ownership and
-obtain the owner's readiness before sending commands; do not resume hidden-code
+confirm I'm ready before sending commands; do not resume hidden-code
 scans or unattended motor/timer tests.
 
 The existing `tools/rf_bench.py` decoder is Mainstays-specific (32 bits), not an

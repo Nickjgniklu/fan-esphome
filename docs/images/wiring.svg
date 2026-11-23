@@ -56,8 +56,8 @@
   <line x1="756" y1="327" x2="820" y2="327" stroke="#b7791f" stroke-width="3"/>
   <line x1="820" y1="327" x2="820" y2="110" stroke="#b7791f" stroke-width="3"/>
   <text x="800" y="80" text-anchor="middle" fill="#b7791f" font-weight="600">433 MHz antenna</text>
-  <text x="800" y="97" text-anchor="middle" fill="#b7791f" font-size="12">~6.8 in, owner-added</text>
+  <text x="800" y="97" text-anchor="middle" fill="#b7791f" font-size="12">~6.8 in, added later</text>
   <text x="560" y="378" fill="#555" font-size="12">Header pins solder straight into the three</text>
   <text x="560" y="394" fill="#555" font-size="12">adjacent XIAO pads: no separate wires.</text>
-  <text x="20" y="458" fill="#b7791f" font-size="12">433 MHz antenna: added after the photos (not pictured); owner saw better range, not measured or tuned.</text><text x="20" y="476" fill="#b7791f" font-size="12">Drawn on ANT, the module's only antenna point. Separate from the 2.4 GHz WiFi antenna.</text>
+  <text x="20" y="458" fill="#b7791f" font-size="12">433 MHz antenna: added after the photos (not pictured); I saw better range, not measured or tuned.</text><text x="20" y="476" fill="#b7791f" font-size="12">Drawn on ANT, the module's only antenna point. Separate from the 2.4 GHz WiFi antenna.</text>
 </svg>

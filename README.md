@@ -7,13 +7,13 @@ ESPHome firmware that turns a Seeed XIAO ESP32-C6 and a cheap 433 MHz transmitte
 | Fan | Remote | Home Assistant gets | Status |
 |---|---|---|---|
 | [Mainstays 42 in. Hugger Ceiling Fan with LED Light](https://www.walmart.com/ip/Mainstays-42-in-Hugger-Ceiling-Fan-with-LED-Light-Remote-Control-6-Speeds-Reverse-Airflow-Black-Walnut-Blades/19292811884), model FSI 90-4201H-4B | 433.92 MHz OOK, 32-bit frames, 16-bit address per remote | Fan entity (speeds 1–6, off, direction) plus 13 buttons: Light On/Off, raw speeds, off, reverse, color, brighter, dimmer | Two fans configured. RF replay checked by SDR on one fan. See [verification](#how-these-fans-were-recorded-and-verified). |
-| [Artika Sunnyvale 28" Fandelier with Remote](https://www.costco.com/p/-/artika-sunnyvale-28-fandelier-with-remote/4000392789) | REM-ARTC-3, FCC ID 2AUHG-FAN-SUR2, 433.92 MHz, 24-bit fixed codes | 13 buttons: Light On/Off, Fan Power Toggle, Speed 1–3, Reverse, Brightness Up/Down, Cooler, Warmer, Timer 1h/4h | All 13 tested by the owner after the bridge was moved closer to the fan |
+| [Artika Sunnyvale 28" Fandelier with Remote](https://www.costco.com/p/-/artika-sunnyvale-28-fandelier-with-remote/4000392789) | REM-ARTC-3, FCC ID 2AUHG-FAN-SUR2, 433.92 MHz, 24-bit fixed codes | 13 buttons: Light On/Off, Fan Power Toggle, Speed 1–3, Reverse, Brightness Up/Down, Cooler, Warmer, Timer 1h/4h | I tested all 13 after moving the bridge closer to the fan |
 
 Know these limits before you rely on it:
 
 - **Light On and Light Off both send the remote's light toggle.** Neither remote has a separate on or off command. Either button can switch the light either way, and every press is sent, even a repeat.
 - **The fan state shown in Home Assistant is assumed.** Pressing the physical remote or a raw button doesn't update it.
-- **Your remote has its own address.** The codes in this repo belong to the owner's remotes. Read your remote's address once with an SDR (see [Adding a fan](#adding-a-fan-or-a-new-remote)) before your fan will respond. You don't need an SDR to run a controller that is already configured.
+- **Your remote has its own address.** The codes in this repo belong to my remotes. Read your remote's address once with an SDR (see [Adding a fan](#adding-a-fan-or-a-new-remote)) before your fan will respond. You don't need an SDR to run a controller that is already configured.
 - **Not measured:** the full 1h/4h timer durations, the RF carrier frequency, and the usable range.
 
 ## Hardware
@@ -25,7 +25,7 @@ Know these limits before you rely on it:
 | Seeed Studio XIAO ESP32-C6 | Transmit data on **D10 = GPIO18** |
 | FS1000A 433 MHz OOK transmitter (board marked XLC-FST) | Wired DATA → D10, VCC → 3V3, GND → GND (see photos). Powered from **3.3 V** in this build; VBUS/5 V is unused. |
 | 2.4 GHz U.FL WiFi antenna for the XIAO | **Required as configured.** This unit's built-in ceramic antenna found no networks, so the firmware drives GPIO3 LOW and GPIO14 HIGH to select the U.FL connector. On a board with a working ceramic antenna, set `antenna_select` in `fan-esphome.yaml` to `ALWAYS_OFF`. |
-| 433 MHz antenna on the transmitter (recommended) | The owner added a ~6.8 in (17 cm) antenna and saw better signal strength and range. That is an observation, not a measured gain or a tuned length. This antenna is separate from the WiFi antenna. |
+| 433 MHz antenna on the transmitter (recommended) | I added a ~6.8 in (17 cm) antenna and saw better signal strength and range. That is an observation, not a measured gain or a tuned length. This antenna is separate from the WiFi antenna. |
 | USB-C power supply and data cable | Use the cable for the first flash; later updates go over WiFi |
 
 Placement matters. The first Artika light test failed, and it worked after the bridge was moved closer to the fan. Common FS1000A listings quote 3.5–12 V and longer range at higher voltage. This build has only been tested at 3.3 V; 5 V is untested here.
@@ -37,8 +37,8 @@ An optional snap-fit enclosure exists for this board pair, but it is not part of
 | Item | Needed for |
 |---|---|
 | RTL-SDR dongle (an RTL2832U + R820T2, such as a Nooelec NESDR Mini 2, was used) and the native `rtl_sdr` program | **Required once** to read a new remote's address or decode a new protocol. Also used to check the bridge's transmissions. |
-| PC microphone | `tools/rf_bench.py` only. It hears the fan's confirmation beep (fan commands beep; light commands don't). |
-| HTTP JPEG snapshot camera (an ESP32 camera running ESPHome in snapshot mode was used) | `tools/rf_bench.py` only: light on/off and blade motion before and after. Optional. |
+| PC microphone | Lets `tools/rf_bench.py` hear the fan's beep. See [Automating fan discovery](#automating-fan-discovery-for-a-coding-agent). |
+| Camera aimed at the fan (any URL that returns a JPEG snapshot; I used an ESP32 camera board running ESPHome) | Lets `tools/rf_bench.py` see the light and blades change. Optional even for the bench. |
 | FFmpeg | `rf_bench.py --video` only |
 
 ### Build photos and wiring
@@ -137,6 +137,33 @@ Only the Windows path was used for this project. `sounddevice` needs PortAudio o
 
 Keep this repo private. `secrets.yaml`, `fan-names.yaml`, `.esphome/`, `.venv/` and `runs/` (raw recordings, audio, room camera frames) are git-ignored. Committed images are cropped to the boards or to the fan. The configured RF addresses are committed on purpose; review them before any public release.
 
+## Automating fan discovery for a coding agent
+
+A coding agent wrote most of this firmware, but it couldn't see the fans. Early on, every test ended the same way. The agent sent a command, the SDR showed the right frames going out, and then it had to stop and ask me whether the fan had done anything. I was the slowest part of the loop. And frames on the SDR only prove a code was sent, not that the fan accepted it.
+
+So I gave the agent ears and eyes:
+
+- **Ears:** the PC microphone. The Mainstays fan beeps when it accepts a fan command, so a beep right after a press means the receiver heard it.
+- **Eyes:** a small ESP32 camera board running ESPHome, aimed at the ceiling and serving a JPEG snapshot. Comparing pictures from before and after a press shows whether the light changed and whether the blades started or stopped.
+
+`tools/rf_bench.py` ties them together. It starts the SDR, microphone and camera, presses a button through the ESPHome API, and records all three on one clock. Then it writes a short summary: did the right code go out, was there a beep, did the light or the blades change. The agent reads the summary and decides the next step on its own.
+
+That closed the loop. Without asking me after every press, the agent could:
+
+- replay all 12 buttons on one fan and check each one;
+- sweep button bytes `00`–`7F` looking for separate light on and off commands (only the known toggle changed the light; I stopped the sweep when the beeping and flashing got old);
+- prove that Light On and Light Off are both toggles.
+
+It still has limits. A beep says a command arrived, not which speed it set. The camera can't see blade direction or light color, and the three streams line up only approximately. Final sign-off came from me watching the fan, and the Artika fan was tested by hand, without the bench. You don't need a microphone or camera to use the bridge, and only the SDR to add a fan.
+
+**One bench run: the bridge sends Fan Off.** The top panel shows the SDR seeing all 10 frames go out. The middle panel shows the fan beeping about 0.2 s later. The bottom panel shows the camera watching the blades slow to a stop over about 40 s. The audio itself is not published.
+
+![Bench timeline: SDR frames, 4 kHz beep, camera blade motion for Fan Off](docs/images/mainstays-replay-bench.png)
+
+**The light buttons, seen by the camera.** These are four presses in a row: On, On, Off, Off. The light flips every time, so both buttons send the same toggle. Images are cropped to the fan.
+
+![Four camera crops: light off, on, off, on after Light On, On, Off, Off](docs/images/mainstays-light-camera.jpg)
+
 ## How these fans were recorded and verified
 
 Each claim in this project is backed by one of four kinds of evidence. They are kept apart because each proves something different:
@@ -144,30 +171,16 @@ Each claim in this project is backed by one of four kinds of evidence. They are 
 - **Capture:** the original remote, recorded with the RTL-SDR at 433.92 MHz and 1 MS/s.
 - **Prediction:** a code computed from the protocol model. It was not captured.
 - **RF replay:** the bridge's own transmission, recorded by the same SDR. It proves what was sent, not that the fan accepted it.
-- **Human confirmation:** the owner watched the fan respond.
+- **Human confirmation:** I watched the fan respond.
 
-The microphone and camera were indirect evidence. A beep shows a fan command was accepted, not which speed was set.
+The microphone and camera from the section above are indirect evidence, not human confirmation.
 
-**1. Capture: Mainstays remote, Speed 1.** One of ten repeated frames, 274/768 µs pulse-width coding. The 16-bit address identifies the remote. The final nibble makes all eight nibbles XOR to zero, so the firmware computes it for any button: that makes untested buttons predictions.
+**Capture: Mainstays remote, Speed 1.** This is one of ten repeated frames, using 274/768 µs pulse-width coding. The 16-bit address identifies the remote. The final nibble makes all eight nibbles XOR to zero, so the firmware can compute the code for any button. Codes for buttons that were never captured are predictions.
 
 ![Mainstays remote capture, one 32-bit frame with address, model, button and checksum fields](docs/images/mainstays-remote-capture.png)
 
-**2. RF replay plus mic and camera: Mainstays Fan Off sent by the bridge.** This is a `rf_bench.py` timeline with SDR, mic and camera on one clock, recorded 2026-11-20:
-
-- **Top:** all 10 frames match the predicted code. Pulses are 281/761 µs, with an 8438 µs sync gap.
-- **Middle:** a 4 kHz beep 0.2 s after the press.
-- **Bottom:** camera blade motion falls to zero over about 40 s.
-
-These are recordings only. The audio itself is not published.
-
-![Bench timeline: SDR envelope, 4 kHz beep band, camera light and motion for Fan Off](docs/images/mainstays-replay-bench.png)
-
-**3. RF replay plus camera: stateless light buttons.** The camera image was taken after each of four presses in a row: On, On, Off, Off. Each press sent nine SDR frames matching the toggle code. The light alternated, which shows both buttons are toggles. Images are cropped to the fan.
-
-![Four camera crops: light off, on, off, on after Light On, On, Off, Off](docs/images/mainstays-light-camera.jpg)
-
-**4. Capture vs RF replay: Artika light toggle.** The top trace is the original remote; the bottom is the bridge's replay on the same SDR. Both decode to `0x562305`, and their timing is within about 15 µs. The first replay did not switch the light. After the owner moved the bridge closer, the owner confirmed every Artika control in Home Assistant. That is human confirmation; detailed observations were not recorded for each button.
+**Capture vs RF replay: Artika light toggle.** The top trace is the original remote; the bottom is the bridge's replay on the same SDR. Both decode to `0x562305`, and their timing is within about 15 µs. The first replay did not switch the light. After I moved the bridge closer, I confirmed every Artika control in Home Assistant. That is human confirmation; I didn't record detailed observations for each button.
 
 ![Artika original remote capture compared with ESP32 replay, both 0x562305](docs/images/artika-capture-vs-replay.png)
 
-Figures 1–4 were generated by `tools/make_readme_figures.py` from git-ignored recordings. The build photos are crops of the owner's photos with location metadata removed. The full protocol tables, the discrete-light-command search, the Artika carrier analysis and the limits are in [docs/PROTOCOLS.md](docs/PROTOCOLS.md).
+The figures were generated by `tools/make_readme_figures.py` from git-ignored recordings. The build photos are crops of my photos with location metadata removed. The full protocol tables, the discrete-light-command search, the Artika carrier analysis and the limits are in [docs/PROTOCOLS.md](docs/PROTOCOLS.md).
