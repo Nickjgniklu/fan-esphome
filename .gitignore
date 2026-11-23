@@ -8,3 +8,4 @@ fan-names.yaml
 *.log
 runs/
 __pycache__/
+.venv/

@@ -1,3 +1,7 @@
+# Optional bench tools only; not needed to build or run the controller.
+# rf_capture.py: numpy (+ matplotlib for --plot) and the native rtl_sdr program.
+# rf_bench.py: everything below, plus rtl_sdr, a microphone (PortAudio) and optionally ffmpeg.
+# make_readme_figures.py: numpy, scipy, matplotlib, Pillow.
 aioesphomeapi
 numpy
 scipy

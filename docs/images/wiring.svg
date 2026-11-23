@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="490" viewBox="0 0 900 490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14">
+  <rect width="900" height="490" fill="#ffffff"/>
+  <text x="450" y="30" text-anchor="middle" font-size="19" font-weight="600" fill="#111">fan-esphome wiring (as built; schematic, not to scale)</text>
+
+  <!-- USB power -->
+  <rect x="190" y="52" width="120" height="34" rx="6" fill="#eef2f7" stroke="#555"/>
+  <text x="250" y="74" text-anchor="middle" fill="#111">USB-C 5 V supply</text>
+  <line x1="250" y1="86" x2="250" y2="112" stroke="#555" stroke-width="3"/>
+
+  <!-- XIAO ESP32-C6, component side, USB at top -->
+  <rect x="150" y="112" width="200" height="300" rx="10" fill="#1d1d1f" stroke="#000"/>
+  <rect x="222" y="104" width="56" height="18" rx="4" fill="#b9bcc2" stroke="#555"/>
+  <text x="250" y="150" text-anchor="middle" fill="#fff" font-weight="600">Seeed XIAO</text>
+  <text x="250" y="168" text-anchor="middle" fill="#fff" font-weight="600">ESP32-C6</text>
+  <text x="250" y="186" text-anchor="middle" fill="#bbb" font-size="12">component side, USB up</text>
+  <g font-size="13" fill="#ddd">
+    <text x="162" y="228">D0</text><text x="162" y="254">D1</text><text x="162" y="280">D2</text>
+    <text x="162" y="306">D3</text><text x="162" y="332">D4</text><text x="162" y="358">D5</text><text x="162" y="384">D6</text>
+  </g>
+  <g font-size="13" text-anchor="end">
+    <text x="338" y="228" fill="#888">VBUS / 5V (unused)</text>
+    <text x="338" y="254" fill="#fff" font-weight="600">GND</text>
+    <text x="338" y="280" fill="#fff" font-weight="600">3V3</text>
+    <text x="338" y="306" fill="#fff" font-weight="600">D10 / GPIO18</text>
+    <text x="338" y="332" fill="#888">D9</text><text x="338" y="358" fill="#888">D8</text><text x="338" y="384" fill="#888">D7</text>
+  </g>
+  <g fill="#d4a017"><circle cx="350" cy="224" r="5"/><circle cx="350" cy="250" r="5"/><circle cx="350" cy="276" r="5"/><circle cx="350" cy="302" r="5"/><circle cx="350" cy="328" r="5"/><circle cx="350" cy="354" r="5"/><circle cx="350" cy="380" r="5"/></g>
+  <g fill="#d4a017"><circle cx="150" cy="224" r="5"/><circle cx="150" cy="250" r="5"/><circle cx="150" cy="276" r="5"/><circle cx="150" cy="302" r="5"/><circle cx="150" cy="328" r="5"/><circle cx="150" cy="354" r="5"/><circle cx="150" cy="380" r="5"/></g>
+
+  <!-- WiFi U.FL -->
+  <circle cx="205" cy="205" r="6" fill="#d4a017" stroke="#fff"/><text x="216" y="210" fill="#ddd" font-size="12">U.FL</text>
+  <path d="M205 205 C150 205 110 205 90 160" fill="none" stroke="#2b6cb0" stroke-width="3"/>
+  <line x1="90" y1="160" x2="90" y2="95" stroke="#2b6cb0" stroke-width="4"/>
+  <text x="90" y="80" text-anchor="middle" fill="#2b6cb0" font-weight="600">2.4 GHz WiFi</text>
+  <text x="20" y="440" fill="#2b6cb0" font-size="12">U.FL external WiFi antenna: required on this unit (firmware drives GPIO3 LOW, GPIO14 HIGH)</text>
+
+  <!-- Connections -->
+  <line x1="355" y1="250" x2="560" y2="250" stroke="#111" stroke-width="3"/>
+  <line x1="355" y1="276" x2="560" y2="276" stroke="#c53030" stroke-width="3"/>
+  <line x1="355" y1="302" x2="560" y2="302" stroke="#2f855a" stroke-width="3"/>
+  <text x="458" y="243" text-anchor="middle" font-size="12" fill="#111">ground</text>
+  <text x="458" y="270" text-anchor="middle" font-size="12" fill="#c53030">3.3 V supply</text>
+  <text x="458" y="322" text-anchor="middle" font-size="12" fill="#2f855a">OOK data (RMT)</text>
+
+  <!-- FS1000A -->
+  <rect x="560" y="172" width="190" height="178" rx="6" fill="#2f7d4f" stroke="#1d4d31"/>
+  <text x="655" y="198" text-anchor="middle" fill="#fff" font-weight="600">FS1000A</text>
+  <text x="655" y="216" text-anchor="middle" fill="#d8f0e0" font-size="12">(XLC-FST) 433 MHz TX</text>
+  <g font-size="13" fill="#fff" font-weight="600">
+    <text x="576" y="255">GND</text><text x="576" y="281">VCC</text><text x="576" y="307">DATA</text>
+  </g>
+  <text x="732" y="331" text-anchor="end" fill="#fff" font-size="13" font-weight="600">ANT</text>
+  <circle cx="750" cy="327" r="6" fill="#d4a017" stroke="#fff"/>
+
+  <!-- 433 MHz antenna -->
+  <line x1="756" y1="327" x2="820" y2="327" stroke="#b7791f" stroke-width="3"/>
+  <line x1="820" y1="327" x2="820" y2="110" stroke="#b7791f" stroke-width="3"/>
+  <text x="800" y="80" text-anchor="middle" fill="#b7791f" font-weight="600">433 MHz antenna</text>
+  <text x="800" y="97" text-anchor="middle" fill="#b7791f" font-size="12">~6.8 in, owner-added</text>
+  <text x="560" y="378" fill="#555" font-size="12">Header pins solder straight into the three</text>
+  <text x="560" y="394" fill="#555" font-size="12">adjacent XIAO pads: no separate wires.</text>
+  <text x="20" y="458" fill="#b7791f" font-size="12">433 MHz antenna: added after the photos (not pictured); owner saw better range, not measured or tuned.</text><text x="20" y="476" fill="#b7791f" font-size="12">Drawn on ANT, the module's only antenna point. Separate from the 2.4 GHz WiFi antenna.</text>
+</svg>

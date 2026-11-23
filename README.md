@@ -1,393 +1,173 @@
 # fan-esphome
 
-ESPHome firmware that controls 433.92 MHz RF ceiling fans and their lights from
-Home Assistant over WiFi, using the ESPHome native API. It runs on a Seeed XIAO
-ESP32-C6 with an OOK transmitter module on **D10 (GPIO18)**.
+ESPHome firmware that turns a Seeed XIAO ESP32-C6 and a cheap 433 MHz transmitter into a WiFi bridge for RF-remote ceiling fans. Home Assistant controls the fans and lights through the ESPHome native API. RF is one-way, so the bridge sends commands but cannot read the fans' state.
 
-For each Mainstays fan, Home Assistant gets:
+## Supported fans
 
-- a fan entity (speeds 1–6, off, direction)
-- two stateless buttons, `<Fan> Light On` and `<Fan> Light Off`
-- raw fan buttons and light brighter, dimmer, and color buttons
+| Fan | Remote | Home Assistant gets | Status |
+|---|---|---|---|
+| [Mainstays 42 in. Hugger Ceiling Fan with LED Light](https://www.walmart.com/ip/Mainstays-42-in-Hugger-Ceiling-Fan-with-LED-Light-Remote-Control-6-Speeds-Reverse-Airflow-Black-Walnut-Blades/19292811884), model FSI 90-4201H-4B | 433.92 MHz OOK, 32-bit frames, 16-bit address per remote | Fan entity (speeds 1–6, off, direction) plus 13 buttons: Light On/Off, raw speeds, off, reverse, color, brighter, dimmer | Two fans configured. RF replay checked by SDR on one fan. See [verification](#how-these-fans-were-recorded-and-verified). |
+| [Artika Sunnyvale 28" Fandelier with Remote](https://www.costco.com/p/-/artika-sunnyvale-28-fandelier-with-remote/4000392789) | REM-ARTC-3, FCC ID 2AUHG-FAN-SUR2, 433.92 MHz, 24-bit fixed codes | 13 buttons: Light On/Off, Fan Power Toggle, Speed 1–3, Reverse, Brightness Up/Down, Cooler, Warmer, Timer 1h/4h | All 13 tested by the owner after the bridge was moved closer to the fan |
 
-Mainstays Fan 2 (`0xFF89`) and Fan 3 (`0x548D`) remain configured. Fan 1 was
-returned and is no longer controlled; the remaining fans are not renumbered.
-An additional Artika REM-ARTC-3 package exposes stateless buttons only; its
-captured protocol is flashed and its light-toggle RF waveform was checked,
-and the owner confirmed **all exposed Artika controls work after moving the
-bridge nearer**. See the verification limits below, especially for timers.
+Know these limits before you rely on it:
 
-**Light On and Light Off are intent labels, not discrete RF on/off commands.**
-For now, BOTH send the known light-toggle code on every press. Either button
-can turn an already-on light off or an already-off light on. Repeated presses
-are never deduplicated. There is no assumed light state, stateful light entity,
-or redundant raw light-toggle button. This avoids suppressing a press because
-Home Assistant thinks the light is already in the requested state; it does not
-provide guaranteed on/off behavior. Genuine discrete commands remain under research.
+- **Light On and Light Off both send the remote's light toggle.** Neither remote has a separate on or off command. Either button can switch the light either way, and every press is sent, even a repeat.
+- **The fan state shown in Home Assistant is assumed.** Pressing the physical remote or a raw button doesn't update it.
+- **Your remote has its own address.** The codes in this repo belong to the owner's remotes. Read your remote's address once with an SDR (see [Adding a fan](#adding-a-fan-or-a-new-remote)) before your fan will respond. You don't need an SDR to run a controller that is already configured.
+- **Not measured:** the full 1h/4h timer durations, the RF carrier frequency, and the usable range.
 
-RF is one-way, so the fan entity's state is still assumed. Raw fan buttons do
-not update it. Existing HA automations using `light.turn_on`/`light.turn_off`
-must be changed to `button.press` on the replacement entities. Home Assistant
-may retain the removed light/raw-toggle entities as unavailable until you
-remove those obsolete entries from its entity registry.
+## Hardware
 
-## Supported Mainstays fan
+### Required to run the controller
 
-The Mainstays fans are the
-[Mainstays 42 in. Hugger Ceiling Fan with LED Light and Remote Control](https://www.walmart.com/ip/Mainstays-42-in-Hugger-Ceiling-Fan-with-LED-Light-Remote-Control-6-Speeds-Reverse-Airflow-Black-Walnut-Blades/19292811884)
-(Black/Walnut blades). The product page lists:
+| Part | Notes |
+|---|---|
+| Seeed Studio XIAO ESP32-C6 | Transmit data on **D10 = GPIO18** |
+| FS1000A 433 MHz OOK transmitter (board marked XLC-FST) | Wired DATA → D10, VCC → 3V3, GND → GND (see photos). Powered from **3.3 V** in this build; VBUS/5 V is unused. |
+| 2.4 GHz U.FL WiFi antenna for the XIAO | **Required as configured.** This unit's built-in ceramic antenna found no networks, so the firmware drives GPIO3 LOW and GPIO14 HIGH to select the U.FL connector. On a board with a working ceramic antenna, set `antenna_select` in `fan-esphome.yaml` to `ALWAYS_OFF`. |
+| 433 MHz antenna on the transmitter (recommended) | The owner added a ~6.8 in (17 cm) antenna and saw better signal strength and range. That is an observation, not a measured gain or a tuned length. This antenna is separate from the WiFi antenna. |
+| USB-C power supply and data cable | Use the cable for the first flash; later updates go over WiFi |
 
-- model FSI 90-4201H-4B
-- hugger (flush) mount, 4 blades, DC motor
-- 6 speeds, reverse airflow
-- one integrated LED light
+Placement matters. The first Artika light test failed, and it worked after the bridge was moved closer to the fan. Common FS1000A listings quote 3.5–12 V and longer range at higher voltage. This build has only been tested at 3.3 V; 5 V is untested here.
 
-What fan_control found about its remote:
+An optional snap-fit enclosure exists for this board pair, but it is not part of this repo.
 
-- 433.92 MHz OOK remote. Buttons: 6 speeds, off, reverse, and light toggle,
-  brightness up/down, and color cycle.
-- Each remote has its own 16-bit address. There is no pairing mode, so this
-  device sends each fan's codes with that fan's remote address.
-- Fan commands beep; light commands don't.
-- Direction only changes while the fan is stopped.
+### Optional: capture and verification gear
 
-## Files
+| Item | Needed for |
+|---|---|
+| RTL-SDR dongle (an RTL2832U + R820T2, such as a Nooelec NESDR Mini 2, was used) and the native `rtl_sdr` program | **Required once** to read a new remote's address or decode a new protocol. Also used to check the bridge's transmissions. |
+| PC microphone | `tools/rf_bench.py` only. It hears the fan's confirmation beep (fan commands beep; light commands don't). |
+| HTTP JPEG snapshot camera (an ESP32 camera running ESPHome in snapshot mode was used) | `tools/rf_bench.py` only: light on/off and blade motion before and after. Optional. |
+| FFmpeg | `rf_bench.py --video` only |
+
+### Build photos and wiring
+
+The transmitter's three header pins solder straight into the XIAO's GND, 3V3 and D10 pads, with no separate wires. These photos were taken before the 433 MHz antenna was added.
+
+| XIAO back: GND, 3V3, D10 soldered; VBUS bare | FS1000A: DATA, VCC, GND header; ANT pad | Assembled, transmitter upright beside the USB-C port |
+|---|---|---|
+| ![XIAO ESP32-C6 back, solder on GND, 3V3 and D10](docs/images/build-xiao-back.jpg) | ![FS1000A XLC-FST transmitter front](docs/images/build-fs1000a-front.jpg) | ![Assembled XIAO and FS1000A, side view](docs/images/build-side-view.jpg) |
+
+![Wiring diagram: XIAO GND to FS1000A GND, 3V3 to VCC, D10/GPIO18 to DATA; U.FL WiFi antenna; 433 MHz antenna on ANT](docs/images/wiring.svg)
+
+## Quick start
+
+Tested on Windows with Python 3.11 and ESPHome 2026.6.5. Run these from PowerShell; ESP-IDF builds fail under Git Bash. On Linux or macOS, use `python3` and `.venv/bin/` in place of `.venv\Scripts\`.
+
+1. Create the environment. This is the only Python dependency needed to build and run the controller.
+
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   ```
+
+2. Create the local config files. Both files are git-ignored, so credentials and room names stay off GitHub.
+
+   ```powershell
+   copy secrets.example.yaml secrets.yaml        # WiFi, fallback AP, OTA password, API key
+   copy fan-names.example.yaml fan-names.yaml    # display names, e.g. room names
+   .venv\Scripts\python -c "import base64,secrets;print(base64.b64encode(secrets.token_bytes(32)).decode())"
+   ```
+
+   Paste that output into `secrets.yaml` as `api_encryption_key`. ESPHome rejects the placeholder value.
+
+3. Set your fans. Put your remote's address in the `packages:` list of `fan-esphome.yaml`, and its codes in `artika.yaml` (see [Adding a fan](#adding-a-fan-or-a-new-remote)). Remove the packages for fans you don't have.
+
+4. Validate, build and flash. The first compile downloads the ESP-IDF toolchain and takes several minutes.
+
+   ```powershell
+   .venv\Scripts\esphome config fan-esphome.yaml
+   .venv\Scripts\esphome run fan-esphome.yaml --device COM5   # first flash over USB; use your port
+   .venv\Scripts\esphome run fan-esphome.yaml                 # later updates over WiFi
+   .venv\Scripts\esphome logs fan-esphome.yaml                # each press logs "RF TX ..."
+   ```
+
+5. Add the device in Home Assistant. Go to Settings → Devices & services. Home Assistant normally discovers `fan-esphome`; enter the API key from `secrets.yaml` when asked. Keep the U.FL WiFi antenna attached and the power stable. The PC and SDR are not needed once the device is in Home Assistant.
+
+### Using it in Home Assistant
+
+- In automations, call `button.press` on the Light On and Light Off buttons. These are not `light.turn_on` entities.
+- Mainstays fan entities send only what changed: a speed, an off, or one reverse toggle per direction change. Reverse takes effect only while the fan is stopped.
+- Artika speed buttons and Fan Power Toggle are separate buttons. Artika has no fan entity, because the remote only has a power toggle.
+- Renaming a fan in `fan-names.yaml` changes its Home Assistant entity identity, then requires a rebuild and flash. For room renames, prefer friendly names set in Home Assistant. See [migration notes](docs/PROTOCOLS.md#home-assistant-migration-notes).
+
+## Adding a fan or a new remote
+
+You only need the SDR here. The microphone and camera add optional evidence.
+
+- **Another fan of a supported family:** follow [`.agents/skills/adding-fans`](.agents/skills/adding-fans/SKILL.md). Capture any button with `tools/rf_capture.py`, then add one package line and a local name.
+- **A remote of a different brand:** follow [`.agents/skills/investigating-fan-remotes`](.agents/skills/investigating-fan-remotes/SKILL.md). It covers the FCC ID lookup, capturing every button, decoding, and a supervised replay.
+
+Both are agent skills, but people can follow them too. They depend only on files in this repo plus the SDR setup below.
+
+### Optional tool setup
+
+```powershell
+.venv\Scripts\python -m pip install -r tools\requirements.txt
+.venv\Scripts\python tools\rf_capture.py record my_remote --seconds 6   # SDR only
+.venv\Scripts\python tools\rf_bench.py --button "Fan 3 RF Speed 1" --expect <32 bits> --mic "PART_OF_MIC_NAME"
+```
+
+| Tool | Needs |
+|---|---|
+| `tools/rf_capture.py`: record and decode any PWM OOK remote to raw `.cu8` | RTL-SDR, `rtl_sdr`, numpy (matplotlib for `--plot`) |
+| `tools/rf_bench.py`: press through the API, record SDR + mic + camera on one clock, decode the Mainstays 32-bit frames | All of `tools/requirements.txt`, `rtl_sdr`, a microphone, and the camera optionally |
+| `tools/make_readme_figures.py`: regenerate the evidence figures below | Local recordings (not in the repo) |
+
+`rtl_sdr` setup, by OS. Put it on `PATH`, or set the `RTL_SDR_EXE` environment variable to its full path.
+
+- **Windows:** download the osmocom rtl-sdr Windows release, and install the WinUSB driver for the dongle with Zadig. This build used a local `rtl_sdr.exe` selected through `RTL_SDR_EXE`.
+- **Debian/Ubuntu:** `sudo apt install rtl-sdr libportaudio2`. If the kernel DVB driver claims the dongle, blacklist `dvb_usb_rtl28xxu`.
+- **macOS:** `brew install librtlsdr portaudio`.
+
+Only the Windows path was used for this project. `sounddevice` needs PortAudio on Linux and macOS. Close SDR# or any other program using the dongle first; `rtl_sdr` takes about 2 s before samples flow.
+
+## Repository layout
 
 | File | Contents |
 |---|---|
-| `fan-esphome.yaml` | Device, WiFi, transmitter, timing, command codes, and the list of fans |
-| `fan.yaml` | Package for one fan, included once per fan with its address |
-| `artika.yaml` | Separate captured Artika codes and 24-bit waveform; controls owner-tested nearby |
-| `secrets.example.yaml` | Template for `secrets.yaml` (git-ignored) |
-| `fan-names.example.yaml` | Neutral template for the required, git-ignored `fan-names.yaml` |
+| `fan-esphome.yaml` | Device, WiFi, antenna switch, transmitter, Mainstays timing and button bytes, list of fans |
+| `fan.yaml` | One Mainstays fan, included once per fan with its address |
+| `artika.yaml` | Artika 24-bit codes and waveform |
+| `secrets.example.yaml`, `fan-names.example.yaml` | Neutral templates for the ignored local files |
+| `requirements.txt` / `tools/requirements.txt` | Minimum build dependency / optional bench dependencies |
+| `docs/PROTOCOLS.md` | Protocol detail, test history, verification limits, migration notes |
+| `.agents/skills/` | Step-by-step guides for adding fans and investigating remotes |
 
-## Build and flash
+Keep this repo private. `secrets.yaml`, `fan-names.yaml`, `.esphome/`, `.venv/` and `runs/` (raw recordings, audio, room camera frames) are git-ignored. Committed images are cropped to the boards or to the fan. The configured RF addresses are committed on purpose; review them before any public release.
 
-Run these from PowerShell. ESP-IDF builds fail under Git Bash.
+## How these fans were recorded and verified
 
-```powershell
-copy secrets.example.yaml secrets.yaml   # then fill it in
-copy fan-names.example.yaml fan-names.yaml   # edit display names locally
-python -m esphome config fan-esphome.yaml
-python -m esphome run fan-esphome.yaml --device COM5   # first flash over USB
-python -m esphome run fan-esphome.yaml                 # later, over the air
-python -m esphome logs fan-esphome.yaml                # each press logs "RF TX <bits>"
-```
+Each claim in this project is backed by one of four kinds of evidence. They are kept apart because each proves something different:
 
-Generate the API encryption key with `openssl rand -base64 32`. The example
-contains placeholders only; never use it unchanged or commit real credentials.
+- **Capture:** the original remote, recorded with the RTL-SDR at 433.92 MHz and 1 MS/s.
+- **Prediction:** a code computed from the protocol model. It was not captured.
+- **RF replay:** the bridge's own transmission, recorded by the same SDR. It proves what was sent, not that the fan accepted it.
+- **Human confirmation:** the owner watched the fan respond.
 
-## Local fan names and Home Assistant migration
+The microphone and camera were indirect evidence. A beep shows a fan command was accepted, not which speed was set.
 
-`fan-names.yaml` contains `substitutions.fan2_name`, `substitutions.fan3_name`,
-and `substitutions.artika_name`. The first two set Mainstays fan entity names;
-the last sets the new Artika button-name prefix. Edit only that ignored file
-for personal room names; keep them out of committed files. Copy the
-neutral example on a fresh checkout before validating or compiling. Changing
-the file takes effect only after rebuilding and flashing the firmware.
+**1. Capture: Mainstays remote, Speed 1.** One of ten repeated frames, 274/768 µs pulse-width coding. The 16-bit address identifies the remote. The final nibble makes all eight nibbles XOR to zero, so the firmware computes it for any button: that makes untested buttons predictions.
 
-Fan numbers, RF addresses, and YAML fan IDs (`fan_2`, `fan_3`) stay fixed.
-Companion button names deliberately remain `Fan 2 …` / `Fan 3 …`, so their
-name-derived native API identities stay unchanged when room names change.
-Brightness/color and stateless Light On/Off behavior are unchanged.
-Artika has no previously deployed entities to preserve. Changing its button
-prefix later changes name-derived API identities, so choose it before first
-deployment and use HA-only friendly-name overrides for subsequent room renames.
+![Mainstays remote capture, one 32-bit frame with address, model, button and checksum fields](docs/images/mainstays-remote-capture.png)
 
-**Fan entity names affect identity in this ESPHome version.** There is no
-supported separate display-name/object-ID option, and keeping a YAML `id`
-alone does not prevent a new Home Assistant registry entry after a rename.
-Before flashing, record the existing two HA fan entity IDs and back up affected
-automations. After discovery, retire/delete the old unavailable fan entries
-and assign their exact former entity IDs to the new fan entries in HA entity
-settings. Do not choose HA's option to regenerate IDs when only editing a
-friendly name. Alternatively, keep the neutral names in the local file and
-set friendly names directly in HA if no firmware-side rename is desired.
+**2. RF replay plus mic and camera: Mainstays Fan Off sent by the bridge.** This is a `rf_bench.py` timeline with SDR, mic and camera on one clock, recorded 2026-11-20:
 
-After the Fan 1 removal is flashed, its fan and 13 button entities may remain
-in HA as unavailable. Remove Fan 1 references from dashboards/automations, then
-delete only its stale entity-registry entries under Settings → Devices &
-services → Entities. **Do not delete the shared ESPHome device/integration**:
-Fan 2 and Fan 3 still use it. Earlier obsolete stateful light/raw-toggle entries
-can also be removed after checking they are not referenced.
+- **Top:** all 10 frames match the predicted code. Pulses are 281/761 µs, with an 8438 µs sync gap.
+- **Middle:** a 4 kHz beep 0.2 s after the press.
+- **Bottom:** camera blade motion falls to zero over about 40 s.
 
-## Adding another Mainstays fan
+These are recordings only. The audio itself is not published.
 
-Capture any button from a remote of this model and take its first 16 bits as
-the address. The firmware computes the checksum using the model below; no
-separate key is configured. Uncaptured buttons assume the shared button bytes.
+![Bench timeline: SDR envelope, 4 kHz beep band, camera light and motion for Fan Off](docs/images/mainstays-replay-bench.png)
 
-Then add one line under `packages:` in `fan-esphome.yaml`:
+**3. RF replay plus camera: stateless light buttons.** The camera image was taken after each of four presses in a row: On, On, Off, Off. Each press sent nine SDR frames matching the toggle code. The light alternated, which shows both buttons are toggles. Images are cropped to the fan.
 
-```yaml
-  fan4: !include { file: fan.yaml, vars: { n: "4", fan_name: "${fan4_name}", addr: "0x1234" } }
-```
+![Four camera crops: light off, on, off, on after Light On, On, Off, Off](docs/images/mainstays-light-camera.jpg)
 
-Use a unique `n`, add its neutral name to the example and its actual name to
-the local file, and replace the illustrative address with its real capture.
-This protocol is for the supported Mainstays model, not speculative support
-for other manufacturers.
+**4. Capture vs RF replay: Artika light toggle.** The top trace is the original remote; the bottom is the bridge's replay on the same SDR. Both decode to `0x562305`, and their timing is within about 15 µs. The first replay did not switch the light. After the owner moved the bridge closer, the owner confirmed every Artika control in Home Assistant. That is human confirmation; detailed observations were not recorded for each button.
 
-To check a button over the air, `tools/rf_bench.py` presses it through the API
-while it records the RTL-SDR, the PC microphone and a snapshot camera on one
-clock. It decodes every frame and reports any beep and changes in the picture.
+![Artika original remote capture compared with ESP32 replay, both 0x562305](docs/images/artika-capture-vs-replay.png)
 
-```powershell
-python -m pip install -r tools/requirements.txt
-python tools/rf_bench.py --button "Fan 3 RF Speed 1" --expect 01010100100011010101000000010000 --mic "YOUR_MIC_NAME"
-python tools/rf_bench.py --remote --seconds 120 --video --mic "YOUR_MIC_NAME"
-```
-
-The bench uses an RTL-SDR at 433.92 MHz and 1 MS/s, with the bridge at
-`fan-esphome.local` and camera at `http://fan-cam.local:8080/`. Select a WASAPI
-microphone with `--mic`; override hosts with CLI options. Put `rtl_sdr` on PATH
-or set the local `RTL_SDR_EXE` environment variable to its executable path.
-Runs are ignored by git and contain timestamped JPEG frames,
-audio WAV, decoded RF frames, a summary and a shared-clock timeline. SDR timing
-is estimated from USB chunk arrival; camera timestamps are HTTP request
-midpoints, not sensor exposure times. Correlation is approximate, not a hardware
-synchronized measurement. A beep is evidence of command acceptance, not proof
-of the exact speed or direction; video must establish those separately.
-With `--video`, FFmpeg exports `camera.mp4` paced by the recorded frame times.
-It is silent; the separate WAV starts at `timing.audio_start_s`, and the video
-starts at the first `timing.camera_frame_times_s` value in `summary.json`.
-
-## Artika REM-ARTC-3 (controls owner-tested nearby)
-
-This package is separate from Mainstays: no nibble checksum, no 32-bit frame,
-and no reuse of Mainstays timing. It shares only the existing blocking OOK
-transmitter on GPIO18. It exposes 13 buttons: Light On/Off intent aliases,
-Fan Power Toggle, speeds 1–3, reverse, brightness up/down, cooler/warmer CCT,
-and 1h/4h timers. There is deliberately **no stateful Artika fan entity or
-discrete fan-off button**: captured fan power is treated as a toggle, and
-the owner's general confirmation does not establish detailed speed-button
-power semantics for a stateful fan entity. Both light
-intent buttons send the same toggle; neither guarantees the requested state.
-
-Evidence comes from the sibling `artika-fan-rf/FINDINGS.md` and
-`captures/session1_all_buttons.cu8` (1 MS/s, 433.92 MHz), not copied into this
-repo. Independent re-decoding of all 13 press windows recovered the same 66
-frames and all listed codes. The apparent 25th HIGH pulse is sync, not data.
-Only the cooler/warmer effects of the original remote were explicitly reported
-by the owner; light-power toggle is supported by the manual, not an explicit
-observation of those original presses. Button-to-code labels otherwise follow
-the confirmed physical press order.
-
-The EV1527 / rc-switch-protocol-1 **style** waveform is 24 bits MSB first plus
-one sync HIGH/LOW pair. This is a waveform classification, not proof of an
-encoder chip. The firmware uses these measured median durations:
-
-| Symbol | HIGH (µs) | LOW (µs) |
-|---|---:|---:|
-| `0` | 410 | 1229 |
-| `1` | 1218 | 421 |
-| Sync after data | 410 | 12594 |
-
-This is approximately T = 410 µs, 1:3 / 3:1 data and 1:31 sync. A frame is
-52.340 ms. Each press sends **five total frames**, about 261.7 ms, in one
-blocking RMT waveform. Captures show five frames for 12 presses and six for
-the first light press. These timings/counts are capture-derived choices;
-the nearby light test succeeded, but receiver tolerance remains unknown.
-
-| Button | Captured 24-bit code |
-|---|---|
-| Light toggle (both intent buttons) | `0x562305` |
-| Fan Power Toggle | `0x562330` |
-| Speed 1 / 2 / 3 | `0x562333` / `0x56231A` / `0x562332` |
-| Reverse | `0x56231B` |
-| Brightness up / down | `0x562319` / `0x562335` |
-| Timer 1h / 4h | `0x562316` / `0x562336` |
-| Cooler / warmer CCT | `0x562318` / `0x562337` |
-
-### Deployment and replay checks (2026-11-23)
-
-`esphome config` and compilation passed. The combined firmware was flashed over
-USB with written-data verification. Its encrypted WiFi native API exposes two
-renamed Mainstays fan entities, their 26 companion buttons, and 13 Artika
-buttons. Fan 1 and stateful light/probe entities are absent. Existing Mainstays
-button keys are preserved; the Mainstays encoder is unchanged.
-
-One Artika **Light On** press was sent while the owner reported light OFF and
-motor RUNNING. **The owner reported that the light did not turn on.** No motor,
-reverse, or timer commands followed. RF matching is not receiver acceptance.
-
-Independent comparison of the saved replay IQ and both original light presses
-found the same `0x562305`, MSB-first polarity, 24 data bits plus sync HIGH:
-
-| On-air measurement | Original remote | ESP32 replay |
-|---|---:|---:|
-| Total frames | 6 first press; 5 last press | 5 |
-| Zero HIGH / LOW medians | 409 / 1229–1230 µs | 424 / 1215 µs |
-| One HIGH / LOW medians | 1217 / 421–422 µs | 1234 / 407 µs |
-| Sync HIGH median | 409 µs | 425 µs |
-| Inter-frame LOW gaps | 12585–12645 µs | 12581–12582 µs |
-| Frame start cadence | 52305–52428 µs | 52376–52382 µs |
-
-Both bursts start directly with data, without a separate leading HIGH. After
-the final sync HIGH, the observed carrier stays low through the remaining
-recording (at least 305 ms for the original snippets, 2.24 s for replay).
-An initial four-frame result was a scratch parser omitting that final
-silence-delimited frame; independent decoding and corrected reanalysis recover
-all five. No extra transmission was needed to resolve it.
-
-The strongest long-pulse spectral peak is near 433.913 MHz for the original
-remote and 433.793 MHz for replay on the same nominally tuned SDR. **This is
-only a carrier-mismatch hypothesis**, not an established failure cause or a
-calibrated frequency measurement: both captures have ADC clipping, and replay
-also has a strong mirrored spectral peak. A lower-gain comparison is needed
-to distinguish transmitter frequency error from measurement artifacts. No
-firmware timing change is justified by the failed light test alone.
-
-The owner then unplugged/moved the bridge nearer and reported **"Yes it is
-working"** in response to the supervised Home Assistant light test. This
-confirms nearby Artika light operation and HA connectivity after relocation.
-The same flashed firmware was used; no timing adjustment or second flash was
-needed. This supports a range/placement explanation for the initial failure,
-but does not isolate its exact RF cause or prove a carrier mismatch.
-
-The owner subsequently reported **"I tested all the controls for it they all
-work"**. All 13 exposed Artika buttons are therefore recorded as owner-tested
-and working after relocation: light-intent aliases, fan power/speeds, reverse,
-brightness, CCT and timer controls. This is human functional confirmation,
-distinct from the automated API discovery and SDR light-waveform checks.
-Detailed per-button observations and repeated-press sequences were not
-recorded. In particular, the report does **not** establish that the 1h/4h
-timers were observed through their full elapsed durations or that either
-light-intent button is an idempotent on/off command.
-
-Keep the selected external antenna attached and use stable USB power. No
-PC/SDR connection is required for HA operation. RF evidence stays in ignored
-`runs/` recordings. No further commands were sent after the first light test;
-the successful nearby test was performed by the owner through HA.
-
-### Verification limits
-
-No more hardware tests are required for this delivery. Exact timer durations,
-quantitative speed/direction measurements, repeated light-alias sequences and
-calibrated carrier/range measurements remain outside the recorded evidence.
-Any future live investigation must coordinate SDR/transmitter ownership and
-obtain the owner's readiness before sending commands; do not resume hidden-code
-scans or unattended motor/timer tests.
-
-The existing `tools/rf_bench.py` decoder is Mainstays-specific (32 bits), not an
-Artika verifier. Use the Artika investigation's level-preserving 24-bit SDR
-analysis. Long presses, simultaneous-button/beeper combinations, and pairing
-are not captured or implemented here. No genuine discrete light ON/OFF is known.
-
-## Mainstays protocol
-
-The protocol was reverse-engineered with an RTL-SDR in the `fan_control`
-project (`docs/PROTOCOL.md`, `docs/CODE_PREDICTION.md`, real `data/*.sig` captures).
-The generated fan3 files without `_capture` are not used. Every fan 1 code was replayed
-from an ESP32 and confirmed on the real fan.
-
-- OOK at 433.92 MHz. Each frame is 32 bits, sent MSB first with no lead pulse:
-  - bit `1`: 768 µs high, then 274 µs low
-  - bit `0`: 274 µs high, then 768 µs low
-  - after the last bit: a 274 µs trailing high, then **8444 µs low**
-- Each press sends 10 frames back to back.
-- **The receiver validates the 8444 µs sync gap.** A ~10.3 ms gap made some
-  buttons silently fail.
-- Frame layout:
-
-  | Bits | Field |
-  |---|---|
-  | 0–15 | Address of the remote and fan |
-  | 16–19 | Model nibble `0x5` |
-  | 20–27 | Button byte |
-  | 28–31 | XOR of the preceding seven nibbles |
-
-- All eight nibbles XOR to zero under the best-supported compact model. All 16
-  original captures from three remotes are consistent with it; even parity
-  follows from it. This is not unique proof: a fixed fan-specific mask predicts
-  identical codes for these remotes. The rule was discovered in these data, so
-  the matching frames do not give a calibrated chance probability. A spot
-  capture neither distinguishes those models nor verifies every button.
-
-| Button | Byte (hex) |
-|---|---|
-| speed1 | `01` |
-| speed2 | `09` |
-| speed3 | `07` |
-| speed4 | `08` |
-| speed5 | `04` |
-| speed6 | `05` |
-| fan off | `02` |
-| reverse direction | `22` |
-| light toggle | `0B` |
-| light color cycle | `0D` |
-| light brighter | `35` |
-| light dimmer | `34` |
-
-| Fan | Address | Status |
-|---|---|---|
-| Fan 1 (retired, not configured) | `0x8678` | Historical reference: all 12 buttons captured and verified in fan_control |
-| Fan 2 | `0xFF89` | Speed1 captured; remaining buttons checksum-generated, not physically verified here |
-| Fan 3 | `0x548D` | Speeds 1–3 captured originally; local replay sweep exercised all 12 buttons |
-
-For fan 3, a later real-remote reference also captured speed6, off and light
-toggle. Every button in the replay sweep had at least nine SDR frames matching
-its independently expected code. Speeds 1–6 beeped, light toggle changed off/on,
-and dimmer/brighter changed the camera measurement in opposite directions.
-Color and reverse were RF-matched but their exact color/rotation behavior is
-not yet functionally verified. Beeps alone do not prove the requested speed.
-The originally uncaptured nine buttons used fan 1's button bytes; they were
-predictions, not real-remote captures. The generated non-capture fan3 `.sig`
-files fail the inferred checksum, remain untested, and are never imported.
-
-### Discrete light-command search (2026-11-20)
-
-A bounded exploratory test on fan 3 (`0x548D`) looked for separate light-on and
-light-off commands, rather than assuming adjacent command bytes had a meaning.
-Each press used the inferred checksum and normal 10-frame timing.
-
-| Candidate byte | Observed result |
-|---|---|
-| `0A` | No visible light-state change in two trials from ON and two from OFF; 7–10 matching SDR frames per trial, no detected beep |
-| `0C` | First trial from ON left the light on, produced a beep, and started blade motion; 9 matching SDR frames. Exact fan function unknown |
-
-The initial test stopped on that unexpected fan behavior. The known fan-off
-command was sent afterward (10 matching frames). A later owner-authorized scan
-completed `00`–`7F` from both light ON and OFF before being paused at the owner's
-request to stop the beeping/flashing. Only `0B` changed the observed on/off
-state; no discrete command was found. `80`–`FF` were not tested. This is a scan
-under the inferred checksum model with a short observation window, not proof
-that discrete commands cannot exist. RF matches confirm transmission, not the
-receiver's interpretation. The scanner is stopped and its temporary controls
-are removed from the normal firmware.
-
-Local evidence is in the ignored `runs/discrete-light-results.json` and its
-referenced per-trial recordings.
-The partial sweep is in `runs/20261120_152943_full_light_scan/` (also ignored).
-
-### Stateless light-button verification (2026-11-20)
-
-The replacement firmware passed `esphome config`, compiled, and was flashed
-over USB with written-data verification. The live encrypted native API exposed
-all six Light On/Off buttons for the three fans, with no light entities,
-raw-toggle buttons, or scanner controls.
-
-On fan 3, consecutive presses of **On, On, Off, Off** each produced nine SDR
-frames matching the known toggle code. Camera observations were **ON → OFF →
-ON → OFF → ON**, with no detected beeps. Thus both names are repeatable,
-stateless aliases for toggle, not idempotent light commands. Fan 1/2 entity
-discovery was checked, but their replacement buttons were not physically
-exercised in this test. Brightness/color buttons and fan controls are unchanged.
-
-### Repository privacy
-
-Real `secrets.yaml`, personal `fan-names.yaml`, ESPHome build output, logs, Python caches, and local `runs/`
-recordings are ignored and must stay local. `secrets.example.yaml` contains
-placeholders only. The bench uses generic hostnames and an executable selected
-through PATH or a local environment variable, not a personal machine path.
-Configured RF addresses and documented protocol examples are deliberately
-included; review those before any future public release. Repository visibility
-must not be changed without separate owner approval.
-
-### Normal button checks
-
-- Only fan commands beep; judge the light buttons by the light itself.
-- fan_control verified reverse on fan 1 with it stopped. The local fan 3 sweep
-  received a beep but has not yet established the actual rotation direction.
-- Test "brighter" from a dim light and "dimmer" from a bright one. At the
-  limit, a working button looks dead.
+Figures 1–4 were generated by `tools/make_readme_figures.py` from git-ignored recordings. The build photos are crops of the owner's photos with location metadata removed. The full protocol tables, the discrete-light-command search, the Artika carrier analysis and the limits are in [docs/PROTOCOLS.md](docs/PROTOCOLS.md).
