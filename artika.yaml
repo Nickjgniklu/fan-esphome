@@ -1,0 +1,50 @@
+# Artika REM-ARTC-3: captured 24-bit fixed codes, not the Mainstays protocol.
+# Capture provenance, timing, and per-function verification: see README.md.
+script:
+  - id: send_artika
+    mode: queued
+    max_runs: 20
+    parameters:
+      code: int
+    then:
+      - logger.log:
+          format: "Artika RF TX %06X"
+          args: ["static_cast<unsigned int>(code)"]
+      - remote_transmitter.transmit_raw:
+          transmitter_id: rf_tx
+          code: !lambda |-
+            // Measured medians at 1 MS/s; 24 data bits plus one sync HIGH.
+            // Five total frames per press, emitted as one blocking waveform.
+            std::vector<int32_t> pulses;
+            pulses.reserve(5 * 50);
+            for (int repeat = 0; repeat < 5; repeat++) {
+              for (int bit = 23; bit >= 0; bit--) {
+                if ((uint32_t(code) >> bit) & 1) {
+                  pulses.push_back(1218);
+                  pulses.push_back(-421);
+                } else {
+                  pulses.push_back(410);
+                  pulses.push_back(-1229);
+                }
+              }
+              pulses.push_back(410);
+              pulses.push_back(-12594);
+            }
+            return pulses;
+
+# Every press transmits. Light On/Off are identical toggle-intent aliases.
+# Fan power is also a toggle: never expose it as a discrete Off command.
+button:
+  - { platform: template, name: "${artika_name} Light On", on_press: [{ script.execute: { id: send_artika, code: 0x562305 } }] }
+  - { platform: template, name: "${artika_name} Light Off", on_press: [{ script.execute: { id: send_artika, code: 0x562305 } }] }
+  - { platform: template, name: "${artika_name} Fan Power Toggle", on_press: [{ script.execute: { id: send_artika, code: 0x562330 } }] }
+  - { platform: template, name: "${artika_name} Speed 1", on_press: [{ script.execute: { id: send_artika, code: 0x562333 } }] }
+  - { platform: template, name: "${artika_name} Speed 2", on_press: [{ script.execute: { id: send_artika, code: 0x56231A } }] }
+  - { platform: template, name: "${artika_name} Speed 3", on_press: [{ script.execute: { id: send_artika, code: 0x562332 } }] }
+  - { platform: template, name: "${artika_name} Reverse", on_press: [{ script.execute: { id: send_artika, code: 0x56231B } }] }
+  - { platform: template, name: "${artika_name} Brightness Up", on_press: [{ script.execute: { id: send_artika, code: 0x562319 } }] }
+  - { platform: template, name: "${artika_name} Brightness Down", on_press: [{ script.execute: { id: send_artika, code: 0x562335 } }] }
+  - { platform: template, name: "${artika_name} Timer 1h", on_press: [{ script.execute: { id: send_artika, code: 0x562316 } }] }
+  - { platform: template, name: "${artika_name} Timer 4h", on_press: [{ script.execute: { id: send_artika, code: 0x562336 } }] }
+  - { platform: template, name: "${artika_name} Cooler", on_press: [{ script.execute: { id: send_artika, code: 0x562318 } }] }
+  - { platform: template, name: "${artika_name} Warmer", on_press: [{ script.execute: { id: send_artika, code: 0x562337 } }] }

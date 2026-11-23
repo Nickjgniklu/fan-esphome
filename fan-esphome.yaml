@@ -1,10 +1,11 @@
 # Ceiling fan + light RF bridge for Home Assistant (ESPHome native API over WiFi).
 #
 # Replays 433.92 MHz OOK remote codes from a transmitter on XIAO ESP32-C6 D10.
-# Protocol and capture history: see README.md (reverse-engineered in fan_control).
+# Protocol and capture history: see README.md (fan_control / artika-fan-rf).
 #
-# Each fan is one `packages:` entry below with its remote's 16-bit address.
-# Frame = address + 0x5 + button byte + XOR checksum nibble.
+# Each Mainstays fan is a package with its remote's 16-bit address.
+# Mainstays frame = address + 0x5 + button byte + XOR checksum nibble.
+# Artika has its own 24-bit frame/timing in artika.yaml.
 
 substitutions:
   name: fan-esphome
@@ -36,11 +37,11 @@ substitutions:
   cmd_light_down: "0x34"
 
 packages:
-  # Every button captured and verified on the real fan.
-  fan1: !include { file: fan.yaml, vars: { n: "1", fan_name: "Fan 1", addr: "0x8678" } }
+  local_names: !include fan-names.yaml
   # Only speed1 captured; remaining buttons use the shared button bytes.
-  fan2: !include { file: fan.yaml, vars: { n: "2", fan_name: "Fan 2", addr: "0xFF89" } }
-  fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "Fan 3", addr: "0x548D" } }
+  fan2: !include { file: fan.yaml, vars: { n: "2", fan_name: "${fan2_name}", addr: "0xFF89" } }
+  fan3: !include { file: fan.yaml, vars: { n: "3", fan_name: "${fan3_name}", addr: "0x548D" } }
+  artika: !include artika.yaml
 
 esphome:
   name: ${name}

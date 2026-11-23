@@ -3,6 +3,7 @@
 
 # Real WiFi/API/OTA credentials; commit secrets.example.yaml instead
 secrets.yaml
+fan-names.yaml
 
 *.log
 runs/

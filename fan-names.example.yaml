@@ -1,0 +1,5 @@
+# Copy to fan-names.yaml and edit locally. Names are never committed.
+substitutions:
+  fan2_name: "Fan 2"
+  fan3_name: "Fan 3"
+  artika_name: "Artika Fan"

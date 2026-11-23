@@ -1,7 +1,7 @@
 # One ceiling fan + its light, controlled over 433 MHz RF.
 # Included once per fan from fan-esphome.yaml with these vars:
 #   n     short id used in entity ids (1, 2, 3, ...)
-#   fan_name  name prefix shown in Home Assistant
+#   fan_name  local display name for the fan entity in Home Assistant
 #   addr  the remote's 16-bit address (bits 0-15 of any of its codes)
 # The button bytes come from the
 # substitutions in fan-esphome.yaml and are shared by every fan of this model.
@@ -47,17 +47,18 @@ fan:
 # Light On/Off are intent labels, not discrete RF commands. Both transmit the
 # toggle on every press, with no assumed light state or duplicate suppression.
 # Raw fan buttons do not change the fan entity's assumed state.
+# Keep button names independent of room names to preserve their API identities.
 button:
-  - { platform: template, name: "${fan_name} Light On", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
-  - { platform: template, name: "${fan_name} Light Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 1", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed1}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 2", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed2}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 3", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed3}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 4", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed4}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 5", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed5}" } }] }
-  - { platform: template, name: "${fan_name} RF Speed 6", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed6}" } }] }
-  - { platform: template, name: "${fan_name} RF Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_fan_off}" } }] }
-  - { platform: template, name: "${fan_name} RF Reverse", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_direction}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Color", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_color}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Brighter", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_up}" } }] }
-  - { platform: template, name: "${fan_name} RF Light Dimmer", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_down}" } }] }
+  - { platform: template, name: "Fan ${n} Light On", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
+  - { platform: template, name: "Fan ${n} Light Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_toggle}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 1", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed1}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 2", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed2}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 3", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed3}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 4", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed4}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 5", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed5}" } }] }
+  - { platform: template, name: "Fan ${n} RF Speed 6", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_speed6}" } }] }
+  - { platform: template, name: "Fan ${n} RF Off", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_fan_off}" } }] }
+  - { platform: template, name: "Fan ${n} RF Reverse", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_direction}" } }] }
+  - { platform: template, name: "Fan ${n} RF Light Color", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_color}" } }] }
+  - { platform: template, name: "Fan ${n} RF Light Brighter", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_up}" } }] }
+  - { platform: template, name: "Fan ${n} RF Light Dimmer", on_press: [{ script.execute: { id: send_rf, address: "${addr}", command: "${cmd_light_down}" } }] }
